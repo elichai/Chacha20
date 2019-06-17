@@ -4,7 +4,6 @@ pub trait MutArithmetics {
     fn xor_mut(&mut self, rhs: u32);
 }
 
-
 impl MutArithmetics for u32 {
     #[inline(always)]
     fn wrapping_add_mut(&mut self, rhs: u32) {
@@ -21,5 +20,3 @@ impl MutArithmetics for u32 {
         *self ^= n;
     }
 }
-
-
