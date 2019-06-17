@@ -15,7 +15,7 @@ pub fn encrypt(plaintext: &mut [u8], key: [u8; 32], nonce: [u8; 12], mut ctr: u3
         println!("{}", matrix);
         matrix = chacha_20_rounds(matrix.clone());
         println!("{}", matrix);
-        xor(chunk, matrix.as_bytes());
+        xor(chunk, matrix.as_le_bytes());
         ctr += 1;
     }
 }

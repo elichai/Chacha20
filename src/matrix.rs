@@ -137,28 +137,39 @@ impl Matrix {
         }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_native_bytes(&self) -> &[u8] {
         assert_eq!(self.0.len(), 16);
         let ptr = self.0.as_ptr() as _;
         // This *Must* be little endian already.
         unsafe { slice::from_raw_parts(ptr, 16 * U32_SIZE) }
     }
+
+    pub fn as_le_bytes(&mut self) -> &[u8] {
+        memory_be_to_le(&mut self.0);
+        self.as_native_bytes()
+    }
+}
+
+#[inline(always)]
+pub fn memory_be_to_le(_slice: &mut [u32]) {
+    #[cfg(not(target_endian = "little"))]
+        {
+            for byte in _slice.iter_mut() {
+                *byte = byte.swap_bytes();
+            }
+        }
 }
 
 fn slice_u8_to_u32(orig: &mut [u8]) -> Option<&[u32]> {
-    let ptr = orig.as_ptr() as *const u32;
+    let ptr = orig.as_ptr() as *mut u32;
     if orig.len() % 4 != 0 || ptr as usize % U32_ALIGN != 0 {
         return None;
     }
-    let res = unsafe { Some(slice::from_raw_parts(ptr, orig.len() / U32_SIZE)) };
+    let res = unsafe { slice::from_raw_parts_mut(ptr, orig.len() / U32_SIZE) };
+    memory_be_to_le(res);
     // Need to flip the bytes if it's not little endian.
-    #[cfg(not(target_endian = "little"))]
-    {
-        for byte in res.iter_mut() {
-            *byte = byte.swap_bytes();
-        }
-    }
-    res
+
+    Some(res)
 }
 
 impl Default for Matrix {
@@ -311,6 +322,6 @@ mod tests {
         matrix += after_setup;
 
         assert_eq!(finished, matrix);
-        assert_eq!(matrix.as_bytes(), &serialized[..]);
+        assert_eq!(matrix.as_le_bytes(), &serialized[..]);
     }
 }
