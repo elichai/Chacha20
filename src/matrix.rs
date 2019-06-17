@@ -2,17 +2,77 @@ use crate::traits::MutArithmetics;
 
 use std::boxed::Box;
 use std::ops::{AddAssign, Index, IndexMut};
-use std::{mem, slice};
+use std::{fmt, mem, slice};
 
 const U32_SIZE: usize = mem::size_of::<u32>();
 const U32_ALIGN: usize = mem::align_of::<u32>();
 
+pub fn chacha_20_rounds(matrix_before: Matrix) -> Matrix {
+    let mut matrix_after = chacha_20_rounds_internal(matrix_before.clone());
+    println!("{}", matrix_after);
+
+    matrix_after += matrix_before;
+
+    matrix_after
+}
+
+fn chacha_20_rounds_internal(mut matrix: Matrix) -> Matrix {
+    for _ in 0..10 {
+        // column rounds
+        matrix.quarter_round(0, 4, 8, 12);
+        matrix.quarter_round(1, 5, 9, 13);
+        matrix.quarter_round(2, 6, 10, 14);
+        matrix.quarter_round(3, 7, 11, 15);
+        // diagonal rounds
+        matrix.quarter_round(0, 5, 10, 15);
+        matrix.quarter_round(1, 6, 11, 12);
+        matrix.quarter_round(2, 7, 8, 13);
+        matrix.quarter_round(3, 4, 9, 14);
+    }
+
+    matrix
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Matrix(Box<[u32]>);
+
+impl fmt::Display for Matrix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, byte) in self.0.iter().enumerate() {
+            write!(f, "{:08x}  ", byte)?;
+            if (i + 1) % 4 == 0 {
+                writeln!(f, "")?;
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Matrix {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_params(key: [u8; 32], nonce: [u8; 12], ctr: u32) -> Self {
+        let mut matrix = Self::new();
+        matrix.set_key_u8(key).unwrap(); // I know that it's the right length
+        matrix.set_nonce_u8(nonce).unwrap(); // I know that it's the right length
+        matrix.set_ctr(ctr);
+        matrix
+    }
+
+    pub fn rewite(&mut self, key: [u8; 32], nonce: [u8; 12], ctr: u32) {
+        self.set_constants();
+        self.set_key_u8(key).unwrap();
+        self.set_nonce_u8(nonce).unwrap();
+        self.set_ctr(ctr);
+    }
+
+    pub fn set_constants(&mut self) {
+        self[0] = 0x61707865;
+        self[1] = 0x3320646e;
+        self[2] = 0x79622d32;
+        self[3] = 0x6b206574;
     }
 
     pub fn existing(matrix: [u32; 16]) -> Self {
@@ -77,11 +137,11 @@ impl Matrix {
         }
     }
 
-    pub fn into_bytes(self) -> Box<[u8]> {
+    pub fn as_bytes(&self) -> &[u8] {
         assert_eq!(self.0.len(), 16);
-        let ptr = Box::into_raw(self.0) as *mut u8;
+        let ptr = self.0.as_ptr() as _;
         // This *Must* be little endian already.
-        unsafe { Box::from(slice::from_raw_parts(ptr, 16*U32_SIZE)) }
+        unsafe { slice::from_raw_parts(ptr, 16 * U32_SIZE) }
     }
 }
 
@@ -165,5 +225,92 @@ mod tests {
         m.quarter_round(2, 7, 8, 13);
 
         assert_eq!(m, expected_res);
+    }
+
+    #[test]
+    fn test_encrypt_block2() {
+        #[rustfmt::skip]
+        let matrix_before = Matrix::existing([
+            0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+            0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+            0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c,
+            0x00000001, 0x00000000, 0x4a000000, 0x00000000,
+        ]);
+        #[rustfmt::skip]
+        let matrix_after = Matrix::existing([
+            0xf3514f22, 0xe1d91b40, 0x6f27de2f, 0xed1d63b8,
+            0x821f138c, 0xe2062c3d, 0xecca4f7e, 0x78cff39e,
+            0xa30a3b8a, 0x920a6072, 0xcd7479b5, 0x34932bed,
+            0x40ba4c79, 0xcd343ec6, 0x4c2c21ea, 0xb7417df0,
+        ]);
+
+        assert_eq!(chacha_20_rounds(matrix_before), matrix_after);
+    }
+
+    #[test]
+    fn test_block_creation() {
+        let res = Matrix::existing([
+            0x61707865, 0x3320646e, 0x79622d32, 0x6b206574, 0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c, 0x13121110, 0x17161514,
+            0x1b1a1918, 0x1f1e1d1c, 0x00000001, 0x00000000, 0x4a000000, 0x00000000,
+        ]);
+        let key = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13,
+            0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        ];
+        let nonce = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00];
+        let ctr = 1;
+
+        assert_eq!(Matrix::from_params(key, nonce, ctr), res);
+    }
+
+    #[test]
+    fn test_encrypt_block() {
+        #[rustfmt::skip]
+            let after_setup = Matrix::existing([
+            0x61707865, 0x3320646e, 0x79622d32, 0x6b206574,
+            0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+            0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c,
+            0x00000001, 0x09000000, 0x4a000000, 0x00000000,
+        ]);
+        #[rustfmt::skip]
+            let after_rounds = Matrix::existing([
+            0x837778ab, 0xe238d763, 0xa67ae21e, 0x5950bb2f,
+            0xc4f2d0c7, 0xfc62bb2f, 0x8fa018fc, 0x3f5ec7b7,
+            0x335271c2, 0xf29489f3, 0xeabda8fc, 0x82e46ebd,
+            0xd19c12b4, 0xb04e16de, 0x9e83d0cb, 0x4e3c50a2,
+        ]);
+        #[rustfmt::skip]
+            let finished = Matrix::existing([
+            0xe4e7f110, 0x15593bd1, 0x1fdd0f50, 0xc47120a3,
+            0xc7f4d1c7, 0x0368c033, 0x9aaa2204, 0x4e6cd4c3,
+            0x466482d2, 0x09aa9f07, 0x05d7c214, 0xa2028bd9,
+            0xd19c12b5, 0xb94e16de, 0xe883d0cb, 0x4e3c50a2,
+        ]);
+        let serialized = [
+            0x10, 0xf1, 0xe7, 0xe4, 0xd1, 0x3b, 0x59, 0x15, 0x50, 0x0f, 0xdd, 0x1f, 0xa3, 0x20, 0x71, 0xc4, 0xc7, 0xd1, 0xf4, 0xc7,
+            0x33, 0xc0, 0x68, 0x03, 0x04, 0x22, 0xaa, 0x9a, 0xc3, 0xd4, 0x6c, 0x4e, 0xd2, 0x82, 0x64, 0x46, 0x07, 0x9f, 0xaa, 0x09,
+            0x14, 0xc2, 0xd7, 0x05, 0xd9, 0x8b, 0x02, 0xa2, 0xb5, 0x12, 0x9c, 0xd1, 0xde, 0x16, 0x4e, 0xb9, 0xcb, 0xd0, 0x83, 0xe8,
+            0xa2, 0x50, 0x3c, 0x4e,
+        ];
+        let mut matrix = Matrix::default();
+        matrix
+            .set_key_u8([
+                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12,
+                0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+            ])
+            .unwrap();
+
+        matrix.set_nonce_u8([0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00]).unwrap();
+        matrix.set_ctr(1);
+
+        assert_eq!(after_setup, matrix);
+
+        let mut matrix = chacha_20_rounds_internal(matrix);
+        assert_eq!(after_rounds, matrix);
+
+        matrix += after_setup;
+
+        assert_eq!(finished, matrix);
+        assert_eq!(matrix.as_bytes(), &serialized[..]);
     }
 }
