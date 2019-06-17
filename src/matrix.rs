@@ -1,7 +1,11 @@
 use crate::traits::MutArithmetics;
 
+use std::boxed::Box;
 use std::ops::{AddAssign, Index, IndexMut};
 use std::{mem, slice};
+
+const U32_SIZE: usize = mem::size_of::<u32>();
+const U32_ALIGN: usize = mem::align_of::<u32>();
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Matrix(Box<[u32]>);
@@ -72,14 +76,29 @@ impl Matrix {
             )
         }
     }
+
+    pub fn into_bytes(self) -> Box<[u8]> {
+        assert_eq!(self.0.len(), 16);
+        let ptr = Box::into_raw(self.0) as *mut u8;
+        // This *Must* be little endian already.
+        unsafe { Box::from(slice::from_raw_parts(ptr, 16*U32_SIZE)) }
+    }
 }
 
 fn slice_u8_to_u32(orig: &mut [u8]) -> Option<&[u32]> {
     let ptr = orig.as_ptr() as *const u32;
-    if orig.len() % 4 != 0 || ptr as usize % mem::align_of::<u32>() != 0 {
+    if orig.len() % 4 != 0 || ptr as usize % U32_ALIGN != 0 {
         return None;
     }
-    unsafe { Some(slice::from_raw_parts(ptr, orig.len() / 4)) }
+    let res = unsafe { Some(slice::from_raw_parts(ptr, orig.len() / U32_SIZE)) };
+    // Need to flip the bytes if it's not little endian.
+    #[cfg(not(target_endian = "little"))]
+    {
+        for byte in res.iter_mut() {
+            *byte = byte.swap_bytes();
+        }
+    }
+    res
 }
 
 impl Default for Matrix {
