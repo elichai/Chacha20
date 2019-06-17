@@ -1,6 +1,7 @@
 use crate::traits::MutArithmetics;
 
 use std::ops::{AddAssign, Index, IndexMut};
+use std::{mem, slice};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Matrix(Box<[u32]>);
@@ -14,7 +15,8 @@ impl Matrix {
         Matrix(Box::new(matrix))
     }
 
-    pub fn set_key(&mut self, key: [u32; 8]) {
+    pub fn set_key(&mut self, key: &[u32]) {
+        assert_eq!(key.len(), 8);
         self[4] = key[0];
         self[5] = key[1];
         self[6] = key[2];
@@ -25,10 +27,27 @@ impl Matrix {
         self[11] = key[7];
     }
 
-    pub fn set_nonce(&mut self, nonce: [u32; 3]) {
+    pub fn set_key_u8(&mut self, mut key: [u8; 32]) -> Option<()> {
+        self.set_key(slice_u8_to_u32(&mut key)?);
+        Some(())
+    }
+
+    pub fn set_nonce(&mut self, nonce: &[u32]) -> Option<()> {
+        assert_eq!(nonce.len(), 3);
         self[13] = nonce[0];
         self[14] = nonce[1];
         self[15] = nonce[2];
+
+        Some(())
+    }
+
+    pub fn set_nonce_u8(&mut self, mut nonce: [u8; 12]) -> Option<()> {
+        self.set_nonce(slice_u8_to_u32(&mut nonce)?);
+        Some(())
+    }
+
+    pub fn set_ctr(&mut self, ctr: u32) {
+        self[12] = ctr;
     }
 
     #[rustfmt::skip]
@@ -53,6 +72,14 @@ impl Matrix {
             )
         }
     }
+}
+
+fn slice_u8_to_u32(orig: &mut [u8]) -> Option<&[u32]> {
+    let ptr = orig.as_ptr() as *const u32;
+    if orig.len() % 4 != 0 || ptr as usize % mem::align_of::<u32>() != 0 {
+        return None;
+    }
+    unsafe { Some(slice::from_raw_parts(ptr, orig.len() / 4)) }
 }
 
 impl Default for Matrix {
@@ -101,13 +128,19 @@ mod tests {
 
     #[test]
     fn test_state_round() {
+        #[rustfmt::skip]
         let mut m = Matrix::existing([
-            0x879531e0, 0xc5ecf37d, 0x516461b1, 0xc9a62f8a, 0x44c20ef3, 0x3390af7f, 0xd9fc690b, 0x2a5f714c, 0x53372767, 0xb00a5631,
-            0x974c541a, 0x359e9963, 0x5c971061, 0x3d631689, 0x2098d9d6, 0x91dbd320,
+            0x879531e0, 0xc5ecf37d, 0x516461b1, 0xc9a62f8a,
+            0x44c20ef3, 0x3390af7f, 0xd9fc690b, 0x2a5f714c,
+            0x53372767, 0xb00a5631, 0x974c541a, 0x359e9963,
+            0x5c971061, 0x3d631689, 0x2098d9d6, 0x91dbd320,
         ]);
+        #[rustfmt::skip]
         let expected_res = Matrix::existing([
-            0x879531e0, 0xc5ecf37d, 0xbdb886dc, 0xc9a62f8a, 0x44c20ef3, 0x3390af7f, 0xd9fc690b, 0xcfacafd2, 0xe46bea80, 0xb00a5631,
-            0x974c541a, 0x359e9963, 0x5c971061, 0xccc07c79, 0x2098d9d6, 0x91dbd320,
+            0x879531e0, 0xc5ecf37d, 0xbdb886dc, 0xc9a62f8a,
+            0x44c20ef3, 0x3390af7f, 0xd9fc690b, 0xcfacafd2,
+            0xe46bea80, 0xb00a5631, 0x974c541a, 0x359e9963,
+            0x5c971061, 0xccc07c79, 0x2098d9d6, 0x91dbd320,
         ]);
 
         m.quarter_round(2, 7, 8, 13);
