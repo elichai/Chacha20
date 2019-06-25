@@ -1,15 +1,13 @@
-use crate::traits::MutArithmetics;
+use crate::traits::{MutArithmetics, clear};
 
-use std::boxed::Box;
-use std::ops::{AddAssign, Index, IndexMut};
-use std::{fmt, mem, slice};
+use core::ops::{AddAssign, Index, IndexMut};
+use core::{fmt, mem, slice};
 
 const U32_SIZE: usize = mem::size_of::<u32>();
 const U32_ALIGN: usize = mem::align_of::<u32>();
 
 pub fn chacha_20_rounds(matrix_before: Matrix) -> Matrix {
     let mut matrix_after = chacha_20_rounds_internal(matrix_before.clone());
-    println!("{}", matrix_after);
 
     matrix_after += matrix_before;
 
@@ -34,7 +32,7 @@ fn chacha_20_rounds_internal(mut matrix: Matrix) -> Matrix {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct Matrix(Box<[u32]>);
+pub struct Matrix([u32; 16]);
 
 impl fmt::Display for Matrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,7 +51,7 @@ impl Matrix {
         Self::default()
     }
 
-    pub fn from_params(key: [u8; 32], nonce: [u8; 12], ctr: u32) -> Self {
+    pub fn from_params(key: [u8; 32], nonce: [u8; 12], ctr: &u32) -> Self {
         let mut matrix = Self::new();
         matrix.set_key_u8(key).unwrap(); // I know that it's the right length
         matrix.set_nonce_u8(nonce).unwrap(); // I know that it's the right length
@@ -61,7 +59,7 @@ impl Matrix {
         matrix
     }
 
-    pub fn rewite(&mut self, key: [u8; 32], nonce: [u8; 12], ctr: u32) {
+    pub fn rewite(&mut self, key: [u8; 32], nonce: [u8; 12], ctr: &u32) {
         self.set_constants();
         self.set_key_u8(key).unwrap();
         self.set_nonce_u8(nonce).unwrap();
@@ -76,7 +74,7 @@ impl Matrix {
     }
 
     pub fn existing(matrix: [u32; 16]) -> Self {
-        Matrix(Box::new(matrix))
+        Matrix(matrix)
     }
 
     pub fn set_key(&mut self, key: &[u32]) {
@@ -93,6 +91,7 @@ impl Matrix {
 
     pub fn set_key_u8(&mut self, mut key: [u8; 32]) -> Option<()> {
         self.set_key(slice_u8_to_u32(&mut key)?);
+        clear(&mut key);
         Some(())
     }
 
@@ -107,11 +106,12 @@ impl Matrix {
 
     pub fn set_nonce_u8(&mut self, mut nonce: [u8; 12]) -> Option<()> {
         self.set_nonce(slice_u8_to_u32(&mut nonce)?);
+        clear(&mut nonce);
         Some(())
     }
 
-    pub fn set_ctr(&mut self, ctr: u32) {
-        self[12] = ctr;
+    pub fn set_ctr(&mut self, ctr: &u32) {
+        self[12] = *ctr;
     }
 
     #[rustfmt::skip]
@@ -153,19 +153,19 @@ impl Matrix {
 #[inline(always)]
 pub fn memory_be_to_le(_slice: &mut [u32]) {
     #[cfg(not(target_endian = "little"))]
-        {
-            for byte in _slice.iter_mut() {
-                *byte = byte.swap_bytes();
-            }
+    {
+        for byte in _slice.iter_mut() {
+            *byte = byte.swap_bytes();
         }
+    }
 }
 
 fn slice_u8_to_u32(orig: &mut [u8]) -> Option<&[u32]> {
-    let ptr = orig.as_ptr() as *mut u32;
+    let ptr = orig.as_ptr();
     if orig.len() % 4 != 0 || ptr as usize % U32_ALIGN != 0 {
         return None;
     }
-    let res = unsafe { slice::from_raw_parts_mut(ptr, orig.len() / U32_SIZE) };
+    let res = unsafe { slice::from_raw_parts_mut(ptr as *mut u32, orig.len() / U32_SIZE) };
     memory_be_to_le(res);
     // Need to flip the bytes if it's not little endian.
 
@@ -205,16 +205,16 @@ impl AddAssign for Matrix {
     }
 }
 
+impl Drop for Matrix {
+    fn drop(&mut self) {
+        clear(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_quarter_round() {
-        let mut m = Matrix(Box::new([0x11111111, 0x01020304, 0x9b8d6f43, 0x01234567]));
-        m.quarter_round(0, 1, 2, 3);
-        assert_eq!(m, Matrix(Box::new([0xea2a92f4, 0xcb1cf8ce, 0x4581472e, 0x5881c4bb])));
-    }
 
     #[test]
     fn test_state_round() {
@@ -271,7 +271,7 @@ mod tests {
         let nonce = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00];
         let ctr = 1;
 
-        assert_eq!(Matrix::from_params(key, nonce, ctr), res);
+        assert_eq!(Matrix::from_params(key, nonce, &ctr), res);
     }
 
     #[test]
@@ -312,7 +312,7 @@ mod tests {
             .unwrap();
 
         matrix.set_nonce_u8([0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00]).unwrap();
-        matrix.set_ctr(1);
+        matrix.set_ctr(&1);
 
         assert_eq!(after_setup, matrix);
 

@@ -1,23 +1,22 @@
 #![allow(dead_code)]
-
+#![no_std]
+#![cfg_attr(feature = "nightly", feature(test))]
 mod matrix;
 mod traits;
 
 use crate::matrix::{chacha_20_rounds, Matrix};
+use crate::traits::clear;
 
 pub fn encrypt(plaintext: &mut [u8], key: [u8; 32], nonce: [u8; 12], mut ctr: u32) {
     assert!(ctr <= 1);
-    //    let mut data_iter = plaintext.chunks_mut(512);
-    let mut matrix = Matrix::from_params(key, nonce, ctr);
+    let mut matrix = Matrix::from_params(key, nonce, &ctr);
     for chunk in plaintext.chunks_mut(64) {
-        //    while let Some(chunk) = data_iter.next() {
-        matrix.rewite(key, nonce, ctr);
-        println!("{}", matrix);
+        matrix.rewite(key, nonce, &ctr);
         matrix = chacha_20_rounds(matrix.clone());
-        println!("{}", matrix);
         xor(chunk, matrix.as_le_bytes());
         ctr += 1;
     }
+    clear(&mut ctr);
 }
 
 pub fn decrypt(ciphertext: &mut [u8], key: [u8; 32], nonce: [u8; 12], ctr: u32) {
@@ -35,6 +34,8 @@ fn xor(lhs: &mut [u8], rhs: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crypto::chacha20::ChaCha20;
+    use crypto::symmetriccipher::SynchronousStreamCipher;
 
     #[test]
     fn test_encrypt_decrypt() {
@@ -63,4 +64,36 @@ mod tests {
         assert_eq!(&data[..], &plaintext[..]);
     }
 
+    #[test]
+    fn test_against_crate() {
+        let key = [0xab; 32];
+        let nonce = [1u8; 12];
+        let mut other_state = ChaCha20::new(&key, &nonce);
+        let mut data = [0xCA; 1024];
+        let mut output = [0u8; 1024];
+        other_state.process(&data, &mut output);
+
+        encrypt(&mut data, key, nonce, 0);
+
+        assert_eq!(&data[..], &output[..]);
+    }
+}
+
+#[cfg(all(test, feature = "nightly"))]
+mod benches {
+    extern crate test;
+    use self::test::{black_box, Bencher};
+    use super::*;
+    const MiB: usize = 1024 * 1024;
+
+    #[bench]
+    pub fn chacha20(bh: &mut Bencher) {
+        let key = [0u8; 32];
+        let nonce = [0u8; 12];
+        let mut data = [01u8; MiB];
+        bh.iter(|| {
+            encrypt(&mut data, key, nonce, 1);
+            black_box(&data);
+        });
+    }
 }

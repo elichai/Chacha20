@@ -4,6 +4,16 @@ version = "0.1.0"
 authors = ["Elichai Turkel <elichai.turkel@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[features]
+nightly = []
+
+
+[dev-dependencies]
+rust-crypto = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+#panic = 'abort'
+codegen-units = 1
