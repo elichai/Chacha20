@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![no_std]
 #![cfg_attr(feature = "nightly", feature(test))]
+mod chacha;
 mod matrix;
 mod traits;
 
@@ -24,7 +25,7 @@ pub fn decrypt(ciphertext: &mut [u8], key: [u8; 32], nonce: [u8; 12], ctr: u32) 
 }
 
 #[inline(always)]
-fn xor(lhs: &mut [u8], rhs: &[u8]) {
+pub(crate) fn xor(lhs: &mut [u8], rhs: &[u8]) {
     debug_assert!(lhs.len() <= rhs.len());
     for i in 0..lhs.len() {
         lhs[i] ^= rhs[i];

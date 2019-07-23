@@ -1,4 +1,4 @@
-use crate::traits::{MutArithmetics, clear};
+use crate::traits::{clear, MutArithmetics};
 
 use core::ops::{AddAssign, Index, IndexMut};
 use core::{fmt, mem, slice};
@@ -125,7 +125,7 @@ impl Matrix {
 
     fn mut_four(&mut self, a: usize, b: usize, c: usize, d: usize) -> (&mut u32, &mut u32, &mut u32, &mut u32) {
         if (a == b) || (b == c) || (c == d) {
-            panic!("Can't return more than one mut ref to the safe variable");
+            panic!("Can't return more than one mut ref to the same variable");
         }
         unsafe {
             (
@@ -140,7 +140,6 @@ impl Matrix {
     pub fn as_native_bytes(&self) -> &[u8] {
         assert_eq!(self.0.len(), 16);
         let ptr = self.0.as_ptr() as _;
-        // This *Must* be little endian already.
         unsafe { slice::from_raw_parts(ptr, 16 * U32_SIZE) }
     }
 
@@ -214,7 +213,6 @@ impl Drop for Matrix {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_state_round() {

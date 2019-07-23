@@ -21,7 +21,6 @@ impl MutArithmetics for u32 {
     }
 }
 
-
 pub fn clear<T: Default>(obj: &mut T) {
     use core::{mem, ptr, sync::atomic};
     let zeroed = T::default();
